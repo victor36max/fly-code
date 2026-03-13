@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+cd -P -- "$(dirname -- "$0")"
+
+# Skip migration on FLAME runners
+if [ -n "${FLAME_PARENT:-}" ]; then
+  echo "FLAME runner detected, skipping migration"
+  exit 0
+fi
+
+exec ./fly_code eval FlyCode.Release.migrate
