@@ -104,6 +104,55 @@ defmodule FlyCode.Agent.CoordinatorTest do
     end
   end
 
+  describe "with_session helpers" do
+    test "set_model dispatches cast to the session pid" do
+      # Use a GenServer that records received casts
+      {:ok, recorder} = Agent.start_link(fn -> [] end)
+
+      :sys.replace_state(Coordinator, fn state ->
+        %{state | sessions: %{"sess-ctrl" => %{pid: recorder, project_id: 1}}}
+      end)
+
+      assert :ok = Coordinator.set_model("sess-ctrl", "opus")
+    end
+
+    test "set_mode dispatches cast to the session pid" do
+      {:ok, recorder} = Agent.start_link(fn -> [] end)
+
+      :sys.replace_state(Coordinator, fn state ->
+        %{state | sessions: %{"sess-ctrl" => %{pid: recorder, project_id: 1}}}
+      end)
+
+      assert :ok = Coordinator.set_mode("sess-ctrl", :plan)
+    end
+
+    test "interrupt dispatches cast to the session pid" do
+      {:ok, recorder} = Agent.start_link(fn -> [] end)
+
+      :sys.replace_state(Coordinator, fn state ->
+        %{state | sessions: %{"sess-ctrl" => %{pid: recorder, project_id: 1}}}
+      end)
+
+      assert :ok = Coordinator.interrupt("sess-ctrl")
+    end
+
+    test "set_model returns error for missing session" do
+      assert {:error, :session_not_found} = Coordinator.set_model("nope", "opus")
+    end
+
+    test "set_mode returns error for missing session" do
+      assert {:error, :session_not_found} = Coordinator.set_mode("nope", :plan)
+    end
+
+    test "interrupt returns error for missing session" do
+      assert {:error, :session_not_found} = Coordinator.interrupt("nope")
+    end
+
+    test "send_message returns error for missing session" do
+      assert {:error, :session_not_found} = Coordinator.send_message("nope", "hi")
+    end
+  end
+
   describe "handle_info :DOWN" do
     test "removes session when its process goes down" do
       # Spawn a process we can kill

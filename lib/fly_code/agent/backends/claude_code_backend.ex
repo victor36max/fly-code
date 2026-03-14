@@ -23,7 +23,10 @@ defmodule FlyCode.Agent.Backends.ClaudeCode do
       cli_path: cli_path,
       permission_mode: :bypass_permissions,
       allow_dangerously_skip_permissions: true,
-      include_partial_messages: true
+      include_partial_messages: true,
+      hooks: %{
+        PermissionRequest: [fn _input, _id -> :allow end]
+      }
     ]
 
     case ClaudeCode.start_link(opts) do

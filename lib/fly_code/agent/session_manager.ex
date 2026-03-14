@@ -143,7 +143,7 @@ defmodule FlyCode.Agent.SessionManager do
   end
 
   def handle_cast({:set_model, model}, %{phase: :active} = state) do
-    case state.backend_mod.set_model(state.client, model) do
+    case safe_backend_call(fn -> state.backend_mod.set_model(state.client, model) end) do
       :ok ->
         broadcast(state.pubsub_topic, {:model_changed, model})
         {:noreply, %{state | current_model: model}}
@@ -157,7 +157,7 @@ defmodule FlyCode.Agent.SessionManager do
   def handle_cast({:set_model, _model}, state), do: {:noreply, state}
 
   def handle_cast({:set_mode, mode}, %{phase: :active} = state) do
-    case state.backend_mod.set_mode(state.client, mode) do
+    case safe_backend_call(fn -> state.backend_mod.set_mode(state.client, mode) end) do
       :ok ->
         broadcast(state.pubsub_topic, {:mode_changed, mode})
         {:noreply, %{state | current_mode: mode}}
@@ -171,7 +171,7 @@ defmodule FlyCode.Agent.SessionManager do
   def handle_cast({:set_mode, _mode}, state), do: {:noreply, state}
 
   def handle_cast(:interrupt, %{phase: :active, task: %Task{} = task} = state) do
-    state.backend_mod.interrupt(state.client)
+    safe_backend_call(fn -> state.backend_mod.interrupt(state.client) end)
     Task.shutdown(task, :brutal_kill)
     broadcast(state.pubsub_topic, {:agent_event, :turn_complete})
     {:noreply, %{state | task: nil}}
@@ -222,6 +222,16 @@ defmodule FlyCode.Agent.SessionManager do
             )
 
             broadcast(state.pubsub_topic, {:agent_event, :turn_complete})
+
+          kind, reason ->
+            Logger.error("Stream unexpected #{kind}: #{inspect(reason)}")
+
+            broadcast(
+              state.pubsub_topic,
+              {:agent_event, {:error, "Agent error: #{inspect(reason)}"}}
+            )
+
+            broadcast(state.pubsub_topic, {:agent_event, :turn_complete})
         end
       end)
 
@@ -243,9 +253,9 @@ defmodule FlyCode.Agent.SessionManager do
   # Backend provisioning failed mid-stream — restart the client and retry the message
   def handle_info({:restart_backend_and_retry, text}, state) do
     Logger.info("[SessionManager] restarting backend for #{state.session_id}")
-    state.backend_mod.stop(state.client)
+    safe_backend_call(fn -> state.backend_mod.stop(state.client) end)
 
-    case state.backend_mod.start(state.session_id, state.workspace, state.pubsub_topic) do
+    case safe_backend_call(fn -> state.backend_mod.start(state.session_id, state.workspace, state.pubsub_topic) end) do
       {:ok, new_client} ->
         Logger.info("[SessionManager] backend restarted, retrying message")
         {:noreply, start_stream(%{state | client: new_client, task: nil}, text)}
@@ -329,6 +339,7 @@ defmodule FlyCode.Agent.SessionManager do
   def handle_info({:DOWN, _ref, :process, _pid, reason}, state) do
     Logger.error("Agent task crashed: #{inspect(reason)}")
     broadcast(state.pubsub_topic, {:agent_event, {:error, inspect(reason)}})
+    broadcast(state.pubsub_topic, {:agent_event, :turn_complete})
     {:noreply, %{state | task: nil}}
   end
 
@@ -338,7 +349,8 @@ defmodule FlyCode.Agent.SessionManager do
   def terminate(_reason, %{client: nil}), do: :ok
 
   def terminate(_reason, state) do
-    state.backend_mod.stop(state.client)
+    safe_backend_call(fn -> state.backend_mod.stop(state.client) end)
+    :ok
   end
 
   # --- Private helpers ---
@@ -414,6 +426,22 @@ defmodule FlyCode.Agent.SessionManager do
 
   defp broadcast(topic, message) do
     Phoenix.PubSub.broadcast(FlyCode.PubSub, topic, message)
+  end
+
+  defp safe_backend_call(fun) do
+    fun.()
+  rescue
+    e ->
+      Logger.warning("[SessionManager] backend call raised: #{Exception.message(e)}")
+      {:error, Exception.message(e)}
+  catch
+    :exit, {:timeout, _} ->
+      Logger.warning("[SessionManager] backend call timed out")
+      {:error, :timeout}
+
+    :exit, reason ->
+      Logger.warning("[SessionManager] backend call failed: #{inspect(reason)}")
+      {:error, reason}
   end
 
   defp backend_module(:claude_code), do: FlyCode.Agent.Backends.ClaudeCode
