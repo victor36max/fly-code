@@ -17,7 +17,8 @@ defmodule FlyCode.Application do
 
         [
           FlyCodeWeb.Telemetry,
-          {Phoenix.PubSub, name: FlyCode.PubSub}
+          {Phoenix.PubSub, name: FlyCode.PubSub},
+          %{id: FlyCode.PG, start: {:pg, :start_link, [FlyCode.PG]}}
         ]
       else
         [
@@ -26,6 +27,7 @@ defmodule FlyCode.Application do
           FlyCode.Vault,
           {DNSCluster, query: Application.get_env(:fly_code, :dns_cluster_query) || :ignore},
           {Phoenix.PubSub, name: FlyCode.PubSub},
+          %{id: FlyCode.PG, start: {:pg, :start_link, [FlyCode.PG]}},
           {FLAME.Pool,
            name: FlyCode.AgentPool,
            min: 0,

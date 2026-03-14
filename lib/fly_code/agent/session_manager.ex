@@ -37,6 +37,8 @@ defmodule FlyCode.Agent.SessionManager do
       backend: backend
     }
 
+    :pg.join(FlyCode.PG, {:session, session_id}, self())
+
     {:ok, state, {:continue, :setup}}
   end
 

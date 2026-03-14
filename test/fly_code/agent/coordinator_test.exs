@@ -54,6 +54,56 @@ defmodule FlyCode.Agent.CoordinatorTest do
     end
   end
 
+  describe "recovery via :pg" do
+    test "recovers session from pg group on restart" do
+      project = FlyCode.Fixtures.project_fixture()
+      session_id = Ecto.UUID.generate()
+
+      {:ok, _session} =
+        FlyCode.Sessions.create_session(%{
+          session_id: session_id,
+          status: :active,
+          project_id: project.id
+        })
+
+      # Simulate a SessionManager registering in pg
+      dummy = spawn(fn -> Process.sleep(:infinity) end)
+      :pg.join(FlyCode.PG, {:session, session_id}, dummy)
+
+      # Restart the Coordinator to trigger recovery
+      :sys.replace_state(Coordinator, fn _state -> %{sessions: %{}} end)
+      # Manually call the recovery by restarting init behavior
+      GenServer.stop(Coordinator, :normal)
+      # Wait for supervisor to restart it
+      Process.sleep(100)
+
+      state = :sys.get_state(Coordinator)
+      assert %{pid: ^dummy, project_id: project_id} = Map.get(state.sessions, session_id)
+      assert project_id == project.id
+
+      # Cleanup
+      Process.exit(dummy, :kill)
+    end
+
+    test "marks unrecovered sessions as shutdown" do
+      project = FlyCode.Fixtures.project_fixture()
+
+      {:ok, session} =
+        FlyCode.Sessions.create_session(%{
+          session_id: Ecto.UUID.generate(),
+          status: :active,
+          project_id: project.id
+        })
+
+      # No pg registration — session should be marked shutdown on recovery
+      GenServer.stop(Coordinator, :normal)
+      Process.sleep(100)
+
+      updated = FlyCode.Sessions.get_session_by_session_id(session.session_id)
+      assert updated.status == :shutdown
+    end
+  end
+
   describe "handle_info :DOWN" do
     test "removes session when its process goes down" do
       # Spawn a process we can kill

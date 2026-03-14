@@ -46,8 +46,39 @@ defmodule FlyCode.Agent.Coordinator do
 
   @impl true
   def init(_) do
-    FlyCode.Sessions.shutdown_stale_sessions()
-    {:ok, %{sessions: %{}}}
+    sessions = recover_sessions()
+    {:ok, %{sessions: sessions}}
+  end
+
+  defp recover_sessions do
+    recovered =
+      :pg.which_groups(FlyCode.PG)
+      |> Enum.reduce(%{}, fn
+        {:session, session_id}, acc ->
+          case :pg.get_members(FlyCode.PG, {:session, session_id}) do
+            [pid | _] ->
+              case FlyCode.Sessions.get_session_by_session_id(session_id) do
+                nil ->
+                  acc
+
+                db_session ->
+                  Process.monitor(pid)
+                  Logger.info("Recovered session #{session_id} from pg (pid: #{inspect(pid)})")
+                  Map.put(acc, session_id, %{pid: pid, project_id: db_session.project_id})
+              end
+
+            [] ->
+              acc
+          end
+
+        _other_group, acc ->
+          acc
+      end)
+
+    recovered_ids = recovered |> Map.keys() |> MapSet.new()
+    FlyCode.Sessions.shutdown_unrecovered_sessions(recovered_ids)
+
+    recovered
   end
 
   @impl true

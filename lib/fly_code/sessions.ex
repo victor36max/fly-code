@@ -39,6 +39,22 @@ defmodule FlyCode.Sessions do
     |> Repo.update_all(set: [status: :shutdown])
   end
 
+  def shutdown_unrecovered_sessions(recovered_session_ids) do
+    recovered_list = MapSet.to_list(recovered_session_ids)
+
+    query =
+      if Enum.empty?(recovered_list) do
+        from(s in Session, where: s.status in [:cloning, :active, :idle])
+      else
+        from(s in Session,
+          where: s.status in [:cloning, :active, :idle],
+          where: s.session_id not in ^recovered_list
+        )
+      end
+
+    Repo.update_all(query, set: [status: :shutdown])
+  end
+
   defp maybe_preload(nil), do: nil
   defp maybe_preload(session), do: Repo.preload(session, :project)
 end
