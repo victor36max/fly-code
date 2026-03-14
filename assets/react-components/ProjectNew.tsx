@@ -1,11 +1,17 @@
 import { useState, useEffect } from "react"
 import { Link } from "live_react"
 import { useLiveReact } from "live_react"
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, ChevronDown } from "lucide-react"
 import CodeEditor from "@uiw/react-textarea-code-editor"
 import { Button } from "@/ui/button"
 import { Input } from "@/ui/input"
 import { Card, CardHeader, CardTitle, CardContent } from "@/ui/card"
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/ui/dropdown-menu"
 
 interface ProjectNewProps {
   form: {
@@ -16,6 +22,14 @@ interface ProjectNewProps {
     errors: Record<string, string[]>
   }
 }
+
+const SETUP_TEMPLATES = [
+  { label: "Elixir / Phoenix", script: "mix local.hex --force && mix local.rebar --force\nmix deps.get && mix compile" },
+  { label: "Node.js (npm)", script: "npm install" },
+  { label: "Node.js (pnpm)", script: "corepack enable && pnpm install" },
+  { label: "Node.js (bun)", script: "curl -fsSL https://bun.sh/install | bash && bun install" },
+  { label: "Python", script: "python3 -m venv .venv && source .venv/bin/activate\npip install -r requirements.txt" },
+]
 
 export default function ProjectNew({ form }: ProjectNewProps) {
   const { pushEvent } = useLiveReact()
@@ -117,6 +131,29 @@ export default function ProjectNew({ form }: ProjectNewProps) {
               <p className="text-xs text-muted-foreground">
                 Runs on the FLAME runner after cloning the repo
               </p>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" type="button">
+                    <ChevronDown className="h-3 w-3" />
+                    Templates
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  {SETUP_TEMPLATES.map((t) => (
+                    <DropdownMenuItem
+                      key={t.label}
+                      onSelect={() =>
+                        handleChange(
+                          "setup_script",
+                          formData.setup_script ? formData.setup_script + "\n" + t.script : t.script
+                        )
+                      }
+                    >
+                      {t.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
               <CodeEditor
                 value={formData.setup_script}
                 language="bash"

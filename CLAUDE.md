@@ -45,6 +45,8 @@ Docker Compose provides PostgreSQL: `docker compose up -d`
 
 Configured in `application.ex`. Min 0, max 15 runners, 10min idle shutdown, 2min boot timeout. Backend is `FLAME.FlyBackend` in prod (set via `FLAME_BACKEND` env var).
 
+- **FLAME runners have NO database access.** Code running on FLAME runners (e.g. `SessionManager`) cannot call `Repo`, Ecto queries, or any context function that touches the DB. All DB writes must happen on the main VM (e.g. via the Coordinator or LiveViews). Runners communicate back to the main VM exclusively through PubSub.
+
 ## Key Runtime Env Vars
 
 `DATABASE_URL`, `SECRET_KEY_BASE`, `CLOAK_KEY` (base64 AES key), `PHX_HOST`, `FLAME_BACKEND` ("Fly" for prod), `FLY_API_TOKEN`, `GIT_TOKEN`.

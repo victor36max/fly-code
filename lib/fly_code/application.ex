@@ -35,7 +35,7 @@ defmodule FlyCode.Application do
            max_concurrency: 1,
            idle_shutdown_after: :timer.minutes(10),
            timeout: :timer.minutes(15),
-           boot_timeout: :timer.minutes(5),
+           boot_timeout: :timer.minutes(10),
            backend: Application.get_env(:fly_code, :flame_backend, FLAME.LocalBackend)},
           FlyCode.Agent.Coordinator,
           FlyCodeWeb.Endpoint

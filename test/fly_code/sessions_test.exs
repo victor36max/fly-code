@@ -9,7 +9,7 @@ defmodule FlyCode.SessionsTest do
     test "returns sessions ordered by inserted_at desc with preloaded project" do
       project = project_fixture()
       _s1 = session_fixture(%{project: project, status: :active})
-      _s2 = session_fixture(%{project: project, status: :idle})
+      _s2 = session_fixture(%{project: project, status: :completed})
 
       sessions = Sessions.list_sessions()
       assert length(sessions) == 2

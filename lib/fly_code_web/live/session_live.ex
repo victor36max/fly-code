@@ -8,19 +8,31 @@ defmodule FlyCodeWeb.SessionLive do
   def mount(%{"id" => session_id}, _session, socket) do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(FlyCode.PubSub, "session:#{session_id}")
+      send(self(), :refresh_status)
     end
 
     db_session = Sessions.get_session_by_session_id(session_id)
 
-    messages =
+    {messages, setup_output} =
       if connected?(socket) do
-        case Coordinator.get_messages(session_id) do
-          {:ok, msgs} -> msgs
-          {:error, _} -> []
-        end
+        msgs =
+          case Coordinator.get_messages(session_id) do
+            {:ok, msgs} -> msgs
+            {:error, _} -> []
+          end
+
+        setup =
+          case Coordinator.get_setup_state(session_id) do
+            {:ok, lines} -> lines
+            {:error, _} -> []
+          end
+
+        {msgs, setup}
       else
-        []
+        {[], []}
       end
+
+    backend = (db_session && db_session.backend) || :claude_code
 
     {:ok,
      assign(socket,
@@ -28,11 +40,15 @@ defmodule FlyCodeWeb.SessionLive do
        session_id: session_id,
        db_session: db_session,
        status: (db_session && db_session.status) || :unknown,
-       backend: (db_session && db_session.backend) || :claude_code,
+       backend: backend,
        messages: messages,
        current_text: "",
        streaming: false,
-       input_text: ""
+       input_text: "",
+       setup_output: setup_output,
+       current_model: default_model(backend),
+       current_mode: "build",
+       available_models: available_models(backend)
      )}
   end
 
@@ -49,6 +65,10 @@ defmodule FlyCodeWeb.SessionLive do
       current_text={@current_text}
       streaming={@streaming}
       input_text={@input_text}
+      setup_output={@setup_output}
+      current_model={@current_model}
+      current_mode={@current_mode}
+      available_models={@available_models}
     />
     """
   end
@@ -64,7 +84,13 @@ defmodule FlyCodeWeb.SessionLive do
   defp serialize_messages(messages) do
     Enum.map(messages, fn msg ->
       base = %{id: msg.id, role: Atom.to_string(msg.role), content: msg.content}
-      if Map.has_key?(msg, :tool_name), do: Map.put(base, :tool_name, msg.tool_name), else: base
+
+      base =
+        if Map.has_key?(msg, :tool_name), do: Map.put(base, :tool_name, msg.tool_name), else: base
+
+      if Map.has_key?(msg, :tool_input),
+        do: Map.put(base, :tool_input, msg.tool_input),
+        else: base
     end)
   end
 
@@ -90,9 +116,44 @@ defmodule FlyCodeWeb.SessionLive do
     {:noreply, assign(socket, input_text: text)}
   end
 
+  def handle_event("set_model", %{"model" => model}, socket) do
+    Coordinator.set_model(socket.assigns.session_id, model)
+    {:noreply, socket}
+  end
+
+  def handle_event("set_mode", %{"mode" => mode}, socket) do
+    mode_atom = String.to_existing_atom(mode)
+    Coordinator.set_mode(socket.assigns.session_id, mode_atom)
+    {:noreply, socket}
+  end
+
+  def handle_event("interrupt", _params, socket) do
+    Coordinator.interrupt(socket.assigns.session_id)
+    {:noreply, socket}
+  end
+
   @impl true
-  def handle_info({:status, status}, socket) do
+  def handle_info(:refresh_status, socket) do
+    case Sessions.get_session_by_session_id(socket.assigns.session_id) do
+      %{status: status} -> {:noreply, assign(socket, status: status)}
+      _ -> {:noreply, socket}
+    end
+  end
+
+  def handle_info({:status, _session_id, status}, socket) do
     {:noreply, assign(socket, status: status)}
+  end
+
+  def handle_info({:setup_output, line}, socket) do
+    {:noreply, update(socket, :setup_output, &(&1 ++ [line]))}
+  end
+
+  def handle_info({:model_changed, model}, socket) do
+    {:noreply, assign(socket, current_model: model)}
+  end
+
+  def handle_info({:mode_changed, mode}, socket) do
+    {:noreply, assign(socket, current_mode: Atom.to_string(mode))}
   end
 
   def handle_info({:agent_event, {:text, content}}, socket) do
@@ -108,22 +169,24 @@ defmodule FlyCodeWeb.SessionLive do
     {:noreply, assign(socket, current_text: socket.assigns.current_text <> delta)}
   end
 
-  def handle_info({:agent_event, {:tool_use_start, name, _input}}, socket) do
+  def handle_info({:agent_event, {:tool_use_start, name, input}}, socket) do
     tool_msg = %{
       id: System.unique_integer([:positive]),
       role: :tool,
       tool_name: name,
+      tool_input: serialize_tool_input(input),
       content: "Running..."
     }
 
     {:noreply, update(socket, :messages, &(&1 ++ [tool_msg]))}
   end
 
-  def handle_info({:agent_event, {:tool_start, name, _input}}, socket) do
+  def handle_info({:agent_event, {:tool_start, name, input}}, socket) do
     tool_msg = %{
       id: System.unique_integer([:positive]),
       role: :tool,
       tool_name: name,
+      tool_input: serialize_tool_input(input),
       content: "Running..."
     }
 
@@ -184,4 +247,31 @@ defmodule FlyCodeWeb.SessionLive do
   end
 
   defp update_last_tool([], _output), do: []
+
+  defp serialize_tool_input(input) when is_map(input) do
+    case Jason.encode(input) do
+      {:ok, json} -> json
+      _ -> inspect(input)
+    end
+  end
+
+  defp serialize_tool_input(input), do: inspect(input)
+
+  defp default_model(:claude_code), do: "sonnet"
+  defp default_model(:opencode), do: "default"
+  defp default_model(_), do: "sonnet"
+
+  defp available_models(:claude_code) do
+    [
+      %{id: "sonnet", name: "Sonnet"},
+      %{id: "opus", name: "Opus"},
+      %{id: "haiku", name: "Haiku"}
+    ]
+  end
+
+  defp available_models(:opencode) do
+    [%{id: "default", name: "Default"}]
+  end
+
+  defp available_models(_), do: [%{id: "sonnet", name: "Sonnet"}]
 end

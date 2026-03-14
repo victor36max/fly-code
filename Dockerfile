@@ -63,20 +63,35 @@ RUN mix release
 FROM ${RUNNER_IMAGE}
 
 RUN apt-get update -y && \
-    apt-get install -y libstdc++6 openssl libncurses5 locales ca-certificates \
-    git openssh-client curl && \
-    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
-    apt-get install -y nodejs && \
-    apt-get clean && rm -f /var/lib/apt/lists/*_*
+    apt-get install -y \
+    # Runtime libs
+    libstdc++6 openssl libncurses5 locales ca-certificates \
+    # Dev tools
+    git openssh-client curl sudo unzip wget zip \
+    # Build essentials (native extensions, compilation)
+    build-essential pkg-config libssl-dev \
+    # Dev utilities AI agents rely on
+    ripgrep fd-find jq tree htop \
+    # Python 3
+    python3 python3-pip python3-venv \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y nodejs \
+    # GitHub CLI
+    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+       | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+       | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+    && apt-get update && apt-get install -y gh \
+    # Podman + podman-compose (daemonless container runtime, Docker CLI-compatible)
+    podman podman-compose \
+    && apt-get clean && rm -f /var/lib/apt/lists/*_*
 
-# Install Claude Code CLI
-RUN curl -fsSL https://claude.ai/install.sh | bash && \
-    cp /root/.local/bin/claude /usr/local/bin/claude && \
-    chmod +x /usr/local/bin/claude
+# Symlink fd-find to fd (Debian packages it as fdfind)
+RUN ln -s $(which fdfind) /usr/local/bin/fd
 
-# Install OpenCode CLI (Go binary)
-RUN curl -fsSL https://opencode.ai/install | bash && \
-    find /root -name opencode -type f -executable 2>/dev/null | head -1 | xargs -I{} mv {} /usr/local/bin/opencode
+# Git defaults for AI agents
+RUN git config --system init.defaultBranch main && \
+    git config --system advice.detachedHead false
 
 # Set the locale
 RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen
@@ -85,6 +100,23 @@ ENV LANG en_US.UTF-8
 ENV LANGUAGE en_US:en
 ENV LC_ALL en_US.UTF-8
 
+# Create non-root user (Claude CLI refuses --dangerously-skip-permissions as root)
+RUN groupadd -r flycode && useradd -r -g flycode -m -d /home/flycode -s /bin/bash flycode && \
+    echo "flycode ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/flycode && \
+    # Rootless Podman needs subuid/subgid ranges for user namespace mapping
+    usermod --add-subuids 100000-165535 --add-subgids 100000-165535 flycode && \
+    # Allow Podman to resolve short image names (e.g. postgres:16-alpine → docker.io/...)
+    mkdir -p /etc/containers && \
+    echo 'unqualified-search-registries = ["docker.io"]' > /etc/containers/registries.conf
+
+# Install CLIs as the non-root user
+USER flycode
+
+RUN curl -fsSL https://claude.ai/install.sh | bash
+RUN curl -fsSL https://opencode.ai/install | bash
+
+USER root
+
 WORKDIR "/app"
 
 # set runner ENV
@@ -92,5 +124,12 @@ ENV MIX_ENV="prod"
 ENV PHX_SERVER="true"
 
 COPY --from=builder /app/_build/${MIX_ENV}/rel/fly_code ./
+
+# Ensure app directory is accessible by flycode user
+RUN chown -R flycode:flycode /app
+
+USER flycode
+
+ENV PATH="/home/flycode/.local/bin:/home/flycode/.opencode/bin:/home/flycode/bin:${PATH}"
 
 CMD ["/bin/sh", "-c", "/app/bin/migrate && /app/bin/server"]

@@ -10,7 +10,7 @@ export interface Project {
 export interface Session {
   id: number
   session_id: string
-  status: "cloning" | "setup" | "active" | "idle" | "shutdown"
+  status: "spawning" | "cloning" | "setup_script" | "spawning_agent" | "active" | "completed" | "shutdown" | "failed"
   backend: "claude_code" | "opencode"
   branch: string | null
   inserted_at: string
@@ -21,6 +21,7 @@ export interface Message {
   role: "user" | "assistant" | "tool" | "error"
   content: string
   tool_name?: string
+  tool_input?: string
 }
 
 export interface EnvVar {

@@ -6,16 +6,59 @@ defmodule FlyCode.Agent.Backends.ClaudeCode do
   alias ClaudeCode.Content.{ToolUseBlock, ToolResultBlock}
   alias ClaudeCode.Message.{AssistantMessage, PartialAssistantMessage, ResultMessage, UserMessage}
 
+  require Logger
+
+  # Port alive check — NOT full readiness. The handshake may still be pending.
+  @health_poll_interval 1_000
+  @health_timeout 30_000
+
   def start(session_id, workspace_path, _pubsub_topic) do
-    ClaudeCode.start_link(
+    cli_path = System.find_executable("claude")
+    Logger.info("[ClaudeBackend] cli_path=#{inspect(cli_path)}")
+
+    opts = [
       model: "sonnet",
       session_id: session_id,
       cwd: workspace_path,
-      cli_path: System.find_executable("claude"),
+      cli_path: cli_path,
       permission_mode: :bypass_permissions,
       allow_dangerously_skip_permissions: true,
       include_partial_messages: true
-    )
+    ]
+
+    case ClaudeCode.start_link(opts) do
+      {:ok, pid} ->
+        case await_healthy(pid) do
+          :ok -> {:ok, pid}
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp await_healthy(pid) do
+    deadline = System.monotonic_time(:millisecond) + @health_timeout
+    do_await_healthy(pid, deadline)
+  end
+
+  defp do_await_healthy(pid, deadline) do
+    case ClaudeCode.Session.health(pid) do
+      :healthy ->
+        Logger.info("[ClaudeBackend] CLI is healthy")
+        :ok
+
+      status ->
+        if System.monotonic_time(:millisecond) >= deadline do
+          Logger.error("[ClaudeBackend] CLI health timeout, last status: #{inspect(status)}")
+          ClaudeCode.Session.stop(pid)
+          {:error, {:provisioning_failed, :initialize_timeout}}
+        else
+          Process.sleep(@health_poll_interval)
+          do_await_healthy(pid, deadline)
+        end
+    end
   end
 
   def stream(client, text) do
@@ -25,6 +68,22 @@ defmodule FlyCode.Agent.Backends.ClaudeCode do
   end
 
   def stop(_client), do: :ok
+
+  def set_model(client, model) do
+    ClaudeCode.Session.set_model(client, model)
+  end
+
+  def set_mode(client, :plan) do
+    ClaudeCode.Session.set_permission_mode(client, :plan)
+  end
+
+  def set_mode(client, :build) do
+    ClaudeCode.Session.set_permission_mode(client, :bypass_permissions)
+  end
+
+  def interrupt(client) do
+    ClaudeCode.Session.interrupt(client)
+  end
 
   # Streaming text deltas
   defp normalize(%PartialAssistantMessage{} = msg) do

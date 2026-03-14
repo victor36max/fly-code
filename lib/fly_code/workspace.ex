@@ -23,27 +23,57 @@ defmodule FlyCode.Workspace do
     end
   end
 
-  def run_setup_script(workspace_path, script) do
+  def stream_setup_script(workspace_path, script, on_output) when is_function(on_output, 1) do
     Logger.info("Running setup script in #{workspace_path}")
 
-    case System.cmd("sh", ["-c", script],
-           cd: workspace_path,
-           stderr_to_stdout: true,
-           timeout: :timer.minutes(5)
-         ) do
-      {_output, 0} ->
+    sudo = System.find_executable("sudo")
+
+    port =
+      Port.open({:spawn_executable, sudo}, [
+        :binary,
+        :exit_status,
+        :stderr_to_stdout,
+        {:args, ["sh", "-c", script]},
+        {:cd, workspace_path},
+        {:line, 4096}
+      ])
+
+    collect_port_output(port, on_output)
+  end
+
+  defp collect_port_output(port, on_output) do
+    receive do
+      {^port, {:data, {:eol, line}}} ->
+        on_output.(line)
+        collect_port_output(port, on_output)
+
+      {^port, {:data, {:noeol, line}}} ->
+        on_output.(line)
+        collect_port_output(port, on_output)
+
+      {^port, {:exit_status, 0}} ->
         Logger.info("Setup script completed successfully")
         :ok
 
-      {output, code} ->
-        Logger.error("Setup script failed (exit #{code}): #{output}")
-        {:error, output}
+      {^port, {:exit_status, code}} ->
+        Logger.error("Setup script failed (exit #{code})")
+        {:error, "exited with code #{code}"}
+    after
+      :timer.minutes(30) ->
+        Port.close(port)
+        Logger.error("Setup script timed out after 30 minutes")
+        {:error, "Setup script timed out"}
     end
   end
 
   def inject_env_vars(env_vars) do
     for {key, value} <- env_vars do
       System.put_env(key, value)
+    end
+
+    # Ensure gh CLI is authenticated if a git token is available
+    with token when is_binary(token) <- System.get_env("GIT_TOKEN") do
+      System.put_env("GH_TOKEN", token)
     end
 
     :ok

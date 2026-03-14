@@ -17,9 +17,25 @@ defmodule FlyCode.Agent.Coordinator do
   end
 
   def send_message(session_id, text) do
+    with_session(session_id, &FlyCode.Agent.SessionManager.send_message(&1, text))
+  end
+
+  def set_model(session_id, model) do
+    with_session(session_id, &FlyCode.Agent.SessionManager.set_model(&1, model))
+  end
+
+  def set_mode(session_id, mode) do
+    with_session(session_id, &FlyCode.Agent.SessionManager.set_mode(&1, mode))
+  end
+
+  def interrupt(session_id) do
+    with_session(session_id, &FlyCode.Agent.SessionManager.interrupt/1)
+  end
+
+  defp with_session(session_id, fun) do
     case GenServer.call(__MODULE__, {:lookup, session_id}) do
       {:ok, pid} ->
-        FlyCode.Agent.SessionManager.send_message(pid, text)
+        fun.(pid)
         :ok
 
       :not_found ->
@@ -41,12 +57,22 @@ defmodule FlyCode.Agent.Coordinator do
     end
   end
 
-  def list_active_sessions do
-    GenServer.call(__MODULE__, :list_active)
+  def get_setup_state(session_id) do
+    case GenServer.call(__MODULE__, {:lookup, session_id}) do
+      {:ok, pid} ->
+        try do
+          {:ok, FlyCode.Agent.SessionManager.get_setup_state(pid)}
+        catch
+          :exit, _ -> {:error, :timeout}
+        end
+
+      :not_found ->
+        {:error, :session_not_found}
+    end
   end
 
-  def update_session_status(session_id, status) do
-    GenServer.cast(__MODULE__, {:update_status, session_id, status})
+  def list_active_sessions do
+    GenServer.call(__MODULE__, :list_active)
   end
 
   # --- Callbacks ---
@@ -70,6 +96,7 @@ defmodule FlyCode.Agent.Coordinator do
 
                 db_session ->
                   Process.monitor(pid)
+                  Phoenix.PubSub.subscribe(FlyCode.PubSub, "session:#{session_id}")
                   Logger.info("Recovered session #{session_id} from pg (pid: #{inspect(pid)})")
                   Map.put(acc, session_id, %{pid: pid, project_id: db_session.project_id})
               end
@@ -106,7 +133,7 @@ defmodule FlyCode.Agent.Coordinator do
       FlyCode.Sessions.create_session(%{
         session_id: session_id,
         project_id: project_id,
-        status: :cloning,
+        status: :spawning,
         branch: branch,
         backend: backend
       })
@@ -121,12 +148,12 @@ defmodule FlyCode.Agent.Coordinator do
       setup_script: project.setup_script
     ]
 
+    # Subscribe BEFORE placing the child to avoid missing status broadcasts
+    Phoenix.PubSub.subscribe(FlyCode.PubSub, pubsub_topic)
+
     case FLAME.place_child(FlyCode.AgentPool, {FlyCode.Agent.SessionManager, child_opts}) do
       {:ok, pid} ->
-        # Monitor the remote process
         Process.monitor(pid)
-
-        # Status stays :cloning — SessionManager will notify when clone completes
 
         sessions = Map.put(state.sessions, session_id, %{pid: pid, project_id: project_id})
 
@@ -134,11 +161,13 @@ defmodule FlyCode.Agent.Coordinator do
          %{state | sessions: sessions}}
 
       {:error, reason} ->
+        Phoenix.PubSub.unsubscribe(FlyCode.PubSub, pubsub_topic)
         Logger.error("Failed to place session on FLAME runner: #{inspect(reason)}")
         FlyCode.Sessions.update_session_status(session_id, :shutdown)
         {:reply, {:error, reason}, state}
 
       other ->
+        Phoenix.PubSub.unsubscribe(FlyCode.PubSub, pubsub_topic)
         Logger.error("Unexpected place_child result: #{inspect(other)}")
         FlyCode.Sessions.update_session_status(session_id, :shutdown)
         {:reply, {:error, :unexpected_result}, state}
@@ -157,18 +186,28 @@ defmodule FlyCode.Agent.Coordinator do
   end
 
   @impl true
-  def handle_cast({:update_status, session_id, status}, state) do
-    FlyCode.Sessions.update_session_status(session_id, status)
+  def handle_info({:status, session_id, status}, state)
+      when is_binary(session_id) and is_atom(status) do
+    Logger.info("[Coordinator] Received status update: #{session_id} -> #{status}")
+    result = FlyCode.Sessions.update_session_status(session_id, status)
+    Logger.info("[Coordinator] DB update result: #{inspect(result)}")
     {:noreply, state}
   end
 
-  @impl true
   def handle_info({:DOWN, _ref, :process, pid, reason}, state) do
     # Find and remove the session whose pid went down
     case Enum.find(state.sessions, fn {_id, %{pid: p}} -> p == pid end) do
       {session_id, _info} ->
         Logger.info("Session #{session_id} runner went down: #{inspect(reason)}")
         FlyCode.Sessions.update_session_status(session_id, :shutdown)
+
+        Phoenix.PubSub.broadcast_from(
+          FlyCode.PubSub,
+          self(),
+          "session:#{session_id}",
+          {:status, session_id, :shutdown}
+        )
+
         sessions = Map.delete(state.sessions, session_id)
         {:noreply, %{state | sessions: sessions}}
 
@@ -176,4 +215,7 @@ defmodule FlyCode.Agent.Coordinator do
         {:noreply, state}
     end
   end
+
+  # Ignore other PubSub messages (agent_event, error, etc.)
+  def handle_info(_msg, state), do: {:noreply, state}
 end

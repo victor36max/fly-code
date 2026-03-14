@@ -34,8 +34,10 @@ defmodule FlyCode.Sessions do
     end
   end
 
+  @in_progress_statuses [:spawning, :cloning, :setup_script, :spawning_agent, :active]
+
   def shutdown_stale_sessions do
-    from(s in Session, where: s.status in [:cloning, :active, :idle])
+    from(s in Session, where: s.status in ^@in_progress_statuses)
     |> Repo.update_all(set: [status: :shutdown])
   end
 
@@ -44,10 +46,10 @@ defmodule FlyCode.Sessions do
 
     query =
       if Enum.empty?(recovered_list) do
-        from(s in Session, where: s.status in [:cloning, :active, :idle])
+        from(s in Session, where: s.status in ^@in_progress_statuses)
       else
         from(s in Session,
-          where: s.status in [:cloning, :active, :idle],
+          where: s.status in ^@in_progress_statuses,
           where: s.session_id not in ^recovered_list
         )
       end

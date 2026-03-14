@@ -28,7 +28,7 @@ flame_backend =
   case System.get_env("FLAME_BACKEND") do
     "Fly" ->
       {FLAME.FlyBackend,
-       token: System.get_env("FLY_API_TOKEN"), cpu_kind: "shared", cpus: 2, memory_mb: 1024}
+       token: System.get_env("FLY_API_TOKEN"), cpu_kind: "performance", cpus: 2, memory_mb: 4096}
 
     _ ->
       FLAME.LocalBackend

@@ -2,7 +2,7 @@ import { useState } from "react"
 import { Link } from "live_react"
 import { useLiveReact } from "live_react"
 import CodeEditor from "@uiw/react-textarea-code-editor"
-import { ArrowLeft, Plus, Settings, ExternalLink, AlertTriangle, Loader2, Pencil, Check, X } from "lucide-react"
+import { ArrowLeft, Plus, Settings, ExternalLink, AlertTriangle, Loader2, Pencil, Check, X, ChevronDown } from "lucide-react"
 import { Button } from "@/ui/button"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/ui/card"
 import { Badge } from "@/ui/badge"
@@ -36,12 +36,15 @@ function statusVariant(status: string): "default" | "secondary" | "destructive" 
   switch (status) {
     case "active":
       return "default"
-    case "idle":
+    case "completed":
       return "secondary"
+    case "spawning":
     case "cloning":
-    case "setup":
+    case "setup_script":
+    case "spawning_agent":
       return "outline"
     case "shutdown":
+    case "failed":
       return "destructive"
     default:
       return "secondary"
@@ -55,6 +58,14 @@ function formatDate(dateStr: string): string {
     return dateStr
   }
 }
+
+const SETUP_TEMPLATES = [
+  { label: "Elixir / Phoenix", script: "mix local.hex --force && mix local.rebar --force\nmix deps.get && mix compile" },
+  { label: "Node.js (npm)", script: "npm install" },
+  { label: "Node.js (pnpm)", script: "corepack enable && pnpm install" },
+  { label: "Node.js (bun)", script: "curl -fsSL https://bun.sh/install | bash && bun install" },
+  { label: "Python", script: "python3 -m venv .venv && source .venv/bin/activate\npip install -r requirements.txt" },
+]
 
 function SetupScriptCard({
   setupScript,
@@ -117,18 +128,38 @@ function SetupScriptCard({
       </CardHeader>
       <CardContent>
         {editing ? (
-          <CodeEditor
-            value={draft}
-            language="bash"
-            placeholder={"#!/bin/bash\nmix deps.get && mix compile"}
-            onChange={(e) => setDraft(e.target.value)}
-            padding={15}
-            data-color-mode="light"
-            style={{
-              ...editorStyle,
-              border: "1px solid hsl(var(--input))",
-            }}
-          />
+          <div className="space-y-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <ChevronDown className="h-3 w-3" />
+                  Templates
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                {SETUP_TEMPLATES.map((t) => (
+                  <DropdownMenuItem
+                    key={t.label}
+                    onSelect={() => setDraft(draft ? draft + "\n" + t.script : t.script)}
+                  >
+                    {t.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <CodeEditor
+              value={draft}
+              language="bash"
+              placeholder={"#!/bin/bash\nmix deps.get && mix compile"}
+              onChange={(e) => setDraft(e.target.value)}
+              padding={15}
+              data-color-mode="light"
+              style={{
+                ...editorStyle,
+                border: "1px solid hsl(var(--input))",
+              }}
+            />
+          </div>
         ) : setupScript ? (
           <CodeEditor
             value={setupScript}

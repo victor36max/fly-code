@@ -1,7 +1,7 @@
 app = "fly-code"
 primary_region = "sin"
 kill_signal = "SIGTERM"
-kill_timeout = "5s"
+kill_timeout = "300s"
 
 [build]
 
@@ -23,7 +23,10 @@ kill_timeout = "5s"
     hard_limit = 1000
     soft_limit = 1000
 
+[deploy]
+  strategy = "rolling"
+
 [[vm]]
   memory = "1gb"
   cpu_kind = "shared"
-  cpus = 1
+  cpus = 2

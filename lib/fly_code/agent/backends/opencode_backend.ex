@@ -20,7 +20,7 @@ defmodule FlyCode.Agent.Backends.OpenCode do
        %{
          client: client_opts,
          server: server,
-         opencode_session_id: session.id
+         opencode_session_id: session["id"]
        }}
     else
       {:error, reason} ->
@@ -59,6 +59,21 @@ defmodule FlyCode.Agent.Backends.OpenCode do
 
   def stop(%{server: server}) do
     OpenCode.close(%{server: server})
+  end
+
+  def set_model(%{client: client, opencode_session_id: sid}, model) do
+    Operations.session_update(sid, %{model: model}, client)
+    :ok
+  end
+
+  def set_mode(%{client: client, opencode_session_id: sid}, mode) do
+    Operations.session_update(sid, %{mode: Atom.to_string(mode)}, client)
+    :ok
+  end
+
+  def interrupt(%{client: client, opencode_session_id: sid}) do
+    Operations.session_abort(sid, client: client)
+    :ok
   end
 
   # --- Event normalization ---
