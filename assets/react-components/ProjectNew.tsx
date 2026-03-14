@@ -2,6 +2,7 @@ import { useState, useEffect } from "react"
 import { Link } from "live_react"
 import { useLiveReact } from "live_react"
 import { ArrowLeft } from "lucide-react"
+import CodeEditor from "@uiw/react-textarea-code-editor"
 import { Button } from "@/ui/button"
 import { Input } from "@/ui/input"
 import { Card, CardHeader, CardTitle, CardContent } from "@/ui/card"
@@ -11,6 +12,7 @@ interface ProjectNewProps {
     name: string
     repo_url: string
     default_branch: string
+    setup_script: string
     errors: Record<string, string[]>
   }
 }
@@ -21,6 +23,7 @@ export default function ProjectNew({ form }: ProjectNewProps) {
     name: form.name || "",
     repo_url: form.repo_url || "",
     default_branch: form.default_branch || "main",
+    setup_script: form.setup_script || "",
   })
 
   useEffect(() => {
@@ -28,8 +31,9 @@ export default function ProjectNew({ form }: ProjectNewProps) {
       name: form.name || "",
       repo_url: form.repo_url || "",
       default_branch: form.default_branch || "main",
+      setup_script: form.setup_script || "",
     })
-  }, [form.name, form.repo_url, form.default_branch])
+  }, [form.name, form.repo_url, form.default_branch, form.setup_script])
 
   const handleChange = (field: string, value: string) => {
     const updated = { ...formData, [field]: value }
@@ -102,6 +106,33 @@ export default function ProjectNew({ form }: ProjectNewProps) {
                 placeholder="main"
               />
               {getErrors("default_branch").map((err, i) => (
+                <p key={i} className="text-sm text-destructive">{err}</p>
+              ))}
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="setup_script" className="text-sm font-medium">
+                Setup Script
+              </label>
+              <p className="text-xs text-muted-foreground">
+                Runs on the FLAME runner after cloning the repo
+              </p>
+              <CodeEditor
+                value={formData.setup_script}
+                language="bash"
+                placeholder={"#!/bin/bash\nmix deps.get && mix compile"}
+                onChange={(e) => handleChange("setup_script", e.target.value)}
+                padding={15}
+                data-color-mode="light"
+                style={{
+                  fontSize: 13,
+                  borderRadius: 6,
+                  border: "1px solid hsl(var(--input))",
+                  fontFamily:
+                    "ui-monospace,SFMono-Regular,SF Mono,Consolas,Liberation Mono,Menlo,monospace",
+                }}
+              />
+              {getErrors("setup_script").map((err, i) => (
                 <p key={i} className="text-sm text-destructive">{err}</p>
               ))}
             </div>

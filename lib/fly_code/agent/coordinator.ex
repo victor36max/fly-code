@@ -110,7 +110,8 @@ defmodule FlyCode.Agent.Coordinator do
       pubsub_topic: pubsub_topic,
       env_vars: env_vars,
       branch: branch,
-      backend: backend
+      backend: backend,
+      setup_script: project.setup_script
     ]
 
     case FLAME.place_child(FlyCode.AgentPool, {FlyCode.Agent.SessionManager, child_opts}) do

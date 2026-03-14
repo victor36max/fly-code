@@ -29,12 +29,13 @@ defmodule FlyCodeWeb.ProjectLive.New do
       name: Phoenix.HTML.Form.input_value(form, :name) || "",
       repo_url: Phoenix.HTML.Form.input_value(form, :repo_url) || "",
       default_branch: Phoenix.HTML.Form.input_value(form, :default_branch) || "main",
+      setup_script: Phoenix.HTML.Form.input_value(form, :setup_script) || "",
       errors: form_errors(form)
     }
   end
 
   defp form_errors(form) do
-    Enum.reduce([:name, :repo_url, :default_branch], %{}, fn field, acc ->
+    Enum.reduce([:name, :repo_url, :default_branch, :setup_script], %{}, fn field, acc ->
       case form[field] do
         %{errors: errors} when errors != [] ->
           Map.put(acc, Atom.to_string(field), Enum.map(errors, fn {msg, _} -> msg end))

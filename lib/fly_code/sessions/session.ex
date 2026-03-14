@@ -4,7 +4,7 @@ defmodule FlyCode.Sessions.Session do
 
   schema "sessions" do
     field :session_id, :string
-    field :status, Ecto.Enum, values: [:cloning, :active, :idle, :shutdown]
+    field :status, Ecto.Enum, values: [:cloning, :setup, :active, :idle, :shutdown]
     field :backend, Ecto.Enum, values: [:claude_code, :opencode]
     field :branch, :string
 

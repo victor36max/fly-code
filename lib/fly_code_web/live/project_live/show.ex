@@ -47,7 +47,8 @@ defmodule FlyCodeWeb.ProjectLive.Show do
       id: project.id,
       name: project.name,
       repo_url: project.repo_url,
-      default_branch: project.default_branch
+      default_branch: project.default_branch,
+      setup_script: project.setup_script
     }
   end
 

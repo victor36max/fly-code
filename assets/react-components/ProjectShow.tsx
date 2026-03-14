@@ -1,5 +1,6 @@
 import { Link } from "live_react"
 import { useLiveReact } from "live_react"
+import CodeEditor from "@uiw/react-textarea-code-editor"
 import { ArrowLeft, Plus, Settings, ExternalLink, AlertTriangle, Loader2 } from "lucide-react"
 import { Button } from "@/ui/button"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/ui/card"
@@ -37,6 +38,7 @@ function statusVariant(status: string): "default" | "secondary" | "destructive" 
     case "idle":
       return "secondary"
     case "cloning":
+    case "setup":
       return "outline"
     case "shutdown":
       return "destructive"
@@ -86,6 +88,29 @@ export default function ProjectShow({
         <h1 className="text-2xl font-bold">{project.name}</h1>
         <p className="text-sm text-muted-foreground">{project.repo_url}</p>
       </div>
+
+      {project.setup_script && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Setup Script</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <CodeEditor
+              value={project.setup_script}
+              language="bash"
+              readOnly
+              data-color-mode="light"
+              padding={15}
+              style={{
+                fontSize: 13,
+                borderRadius: 6,
+                fontFamily:
+                  "ui-monospace,SFMono-Regular,SF Mono,Consolas,Liberation Mono,Menlo,monospace",
+              }}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {hasMissingTokens && (
         <Alert variant="warning">

@@ -6,6 +6,7 @@ defmodule FlyCode.Projects.Project do
     field :name, :string
     field :repo_url, :string
     field :default_branch, :string, default: "main"
+    field :setup_script, :string
 
     has_many :env_vars, FlyCode.Projects.EnvVar
     has_many :sessions, FlyCode.Sessions.Session
@@ -15,7 +16,7 @@ defmodule FlyCode.Projects.Project do
 
   def changeset(project, attrs) do
     project
-    |> cast(attrs, [:name, :repo_url, :default_branch])
+    |> cast(attrs, [:name, :repo_url, :default_branch, :setup_script])
     |> validate_required([:name, :repo_url])
     |> validate_length(:name, min: 1, max: 100)
     |> unique_constraint(:name)

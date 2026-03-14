@@ -8,6 +8,7 @@ interface StatusBadgeProps {
 
 const statusConfig: Record<string, { variant: "default" | "secondary" | "destructive" | "outline"; label: string; pulse?: boolean }> = {
   cloning: { variant: "outline", label: "Cloning", pulse: true },
+  setup: { variant: "outline", label: "Running setup", pulse: true },
   active: { variant: "default", label: "Active" },
   idle: { variant: "secondary", label: "Idle" },
   shutdown: { variant: "destructive", label: "Shutdown" },

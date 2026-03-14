@@ -3,13 +3,14 @@ export interface Project {
   name: string
   repo_url: string
   default_branch: string
+  setup_script: string | null
   inserted_at: string
 }
 
 export interface Session {
   id: number
   session_id: string
-  status: "cloning" | "active" | "idle" | "shutdown"
+  status: "cloning" | "setup" | "active" | "idle" | "shutdown"
   backend: "claude_code" | "opencode"
   branch: string | null
   inserted_at: string

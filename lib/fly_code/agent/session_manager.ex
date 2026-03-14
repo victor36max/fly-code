@@ -34,7 +34,8 @@ defmodule FlyCode.Agent.SessionManager do
       repo_url: Keyword.fetch!(opts, :repo_url),
       env_vars: Keyword.fetch!(opts, :env_vars),
       branch: Keyword.get(opts, :branch, "main"),
-      backend: backend
+      backend: backend,
+      setup_script: Keyword.get(opts, :setup_script)
     }
 
     :pg.join(FlyCode.PG, {:session, session_id}, self())
@@ -53,29 +54,33 @@ defmodule FlyCode.Agent.SessionManager do
     # Clone repo
     Logger.info("[SessionManager] cloning #{state.repo_url} (branch: #{state.branch})")
 
-    case FlyCode.Workspace.setup(state.repo_url, state.session_id, branch: state.branch) do
-      {:ok, workspace_path} ->
-        Logger.info("[SessionManager] clone complete, starting #{state.backend} backend")
+    with {:ok, workspace_path} <-
+           FlyCode.Workspace.setup(state.repo_url, state.session_id, branch: state.branch),
+         :ok <- maybe_run_setup_script(workspace_path, state.setup_script, state.pubsub_topic),
+         :ok <- Logger.info("[SessionManager] clone complete, starting #{state.backend} backend"),
+         {:ok, client} <-
+           state.backend_mod.start(state.session_id, workspace_path, state.pubsub_topic) do
+      Logger.info("[SessionManager] backend started successfully")
+      FlyCode.Agent.Coordinator.update_session_status(state.session_id, :active)
+      broadcast(state.pubsub_topic, {:status, :active})
 
-        case state.backend_mod.start(state.session_id, workspace_path, state.pubsub_topic) do
-          {:ok, client} ->
-            Logger.info("[SessionManager] backend started successfully")
-            FlyCode.Agent.Coordinator.update_session_status(state.session_id, :active)
-            broadcast(state.pubsub_topic, {:status, :active})
+      {:noreply,
+       %{state | client: client, workspace: workspace_path, repo_url: nil, env_vars: nil}}
+    else
+      {:error, {:setup_script, reason}} ->
+        Logger.error("[SessionManager] setup script FAILED: #{reason}")
+        broadcast(state.pubsub_topic, {:error, "Setup script failed: #{reason}"})
+        {:stop, {:setup_script_failed, reason}, state}
 
-            {:noreply,
-             %{state | client: client, workspace: workspace_path, repo_url: nil, env_vars: nil}}
-
-          {:error, reason} ->
-            Logger.info("[SessionManager] backend start FAILED: #{inspect(reason)}")
-            broadcast(state.pubsub_topic, {:error, "Failed to start backend: #{inspect(reason)}"})
-            {:stop, {:backend_start_failed, reason}, state}
-        end
-
-      {:error, reason} ->
-        Logger.info("[SessionManager] clone FAILED: #{reason}")
+      {:error, reason} when is_binary(reason) ->
+        Logger.error("[SessionManager] clone FAILED: #{reason}")
         broadcast(state.pubsub_topic, {:error, "Failed to clone repo: #{reason}"})
         {:stop, {:clone_failed, reason}, state}
+
+      {:error, reason} ->
+        Logger.error("[SessionManager] backend start FAILED: #{inspect(reason)}")
+        broadcast(state.pubsub_topic, {:error, "Failed to start backend: #{inspect(reason)}"})
+        {:stop, {:backend_start_failed, reason}, state}
     end
   end
 
@@ -91,15 +96,27 @@ defmodule FlyCode.Agent.SessionManager do
 
     task =
       Task.async(fn ->
-        events =
-          state.backend_mod.stream(state.client, text)
-          |> Enum.map(fn event ->
-            broadcast(state.pubsub_topic, {:agent_event, event})
-            event
-          end)
+        try do
+          events =
+            state.backend_mod.stream(state.client, text)
+            |> Enum.map(fn event ->
+              broadcast(state.pubsub_topic, {:agent_event, event})
+              event
+            end)
 
-        broadcast(state.pubsub_topic, {:agent_event, :turn_complete})
-        send(me, {:store_events, events})
+          broadcast(state.pubsub_topic, {:agent_event, :turn_complete})
+          send(me, {:store_events, events})
+        catch
+          :throw, {:stream_init_error, reason} ->
+            Logger.error("Stream init failed: #{inspect(reason)}")
+
+            broadcast(
+              state.pubsub_topic,
+              {:agent_event, {:error, "Agent failed to start: #{inspect(reason)}"}}
+            )
+
+            broadcast(state.pubsub_topic, {:agent_event, :turn_complete})
+        end
       end)
 
     {:noreply, %{state | task: task, messages: state.messages ++ [user_msg]}}
@@ -174,6 +191,18 @@ defmodule FlyCode.Agent.SessionManager do
     case List.pop_at(msgs, -1) do
       {%{role: :tool} = tool_msg, rest} -> rest ++ [%{tool_msg | content: output}]
       _ -> msgs
+    end
+  end
+
+  defp maybe_run_setup_script(_workspace_path, nil, _topic), do: :ok
+  defp maybe_run_setup_script(_workspace_path, "", _topic), do: :ok
+
+  defp maybe_run_setup_script(workspace_path, script, topic) do
+    broadcast(topic, {:status, :setup})
+
+    case FlyCode.Workspace.run_setup_script(workspace_path, script) do
+      :ok -> :ok
+      {:error, output} -> {:error, {:setup_script, output}}
     end
   end
 

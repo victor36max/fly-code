@@ -20,12 +20,12 @@ export default function MessageList({ messages, streaming, status }: MessageList
   return (
     <ScrollArea className="flex-1">
       <div className="flex flex-col py-4">
-        {status === "cloning" && (
+        {(status === "cloning" || status === "setup") && (
           <div className="flex items-center justify-center py-8">
             <div className="flex items-center gap-3 rounded-lg border bg-muted/50 px-4 py-3">
               <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
               <span className="text-sm text-muted-foreground">
-                Cloning repository...
+                {status === "cloning" ? "Cloning repository..." : "Running setup script..."}
               </span>
             </div>
           </div>

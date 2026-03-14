@@ -23,6 +23,24 @@ defmodule FlyCode.Workspace do
     end
   end
 
+  def run_setup_script(workspace_path, script) do
+    Logger.info("Running setup script in #{workspace_path}")
+
+    case System.cmd("sh", ["-c", script],
+           cd: workspace_path,
+           stderr_to_stdout: true,
+           timeout: :timer.minutes(5)
+         ) do
+      {_output, 0} ->
+        Logger.info("Setup script completed successfully")
+        :ok
+
+      {output, code} ->
+        Logger.error("Setup script failed (exit #{code}): #{output}")
+        {:error, output}
+    end
+  end
+
   def inject_env_vars(env_vars) do
     for {key, value} <- env_vars do
       System.put_env(key, value)
