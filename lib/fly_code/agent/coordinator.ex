@@ -29,8 +29,15 @@ defmodule FlyCode.Agent.Coordinator do
 
   def get_messages(session_id) do
     case GenServer.call(__MODULE__, {:lookup, session_id}) do
-      {:ok, pid} -> {:ok, FlyCode.Agent.SessionManager.get_messages(pid)}
-      :not_found -> {:error, :session_not_found}
+      {:ok, pid} ->
+        try do
+          {:ok, FlyCode.Agent.SessionManager.get_messages(pid)}
+        catch
+          :exit, _ -> {:error, :timeout}
+        end
+
+      :not_found ->
+        {:error, :session_not_found}
     end
   end
 

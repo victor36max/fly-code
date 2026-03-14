@@ -86,19 +86,11 @@ ENV LANGUAGE en_US:en
 ENV LC_ALL en_US.UTF-8
 
 WORKDIR "/app"
-RUN chown nobody /app
-
-# Create a writable home directory for nobody user
-# Required for git config, claude CLI, and other tools that need $HOME
-RUN mkdir -p /home/nobody && chown nobody:nogroup /home/nobody
-ENV HOME="/home/nobody"
 
 # set runner ENV
 ENV MIX_ENV="prod"
 ENV PHX_SERVER="true"
 
-COPY --from=builder --chown=nobody:root /app/_build/${MIX_ENV}/rel/fly_code ./
-
-USER nobody
+COPY --from=builder /app/_build/${MIX_ENV}/rel/fly_code ./
 
 CMD ["/bin/sh", "-c", "/app/bin/migrate && /app/bin/server"]

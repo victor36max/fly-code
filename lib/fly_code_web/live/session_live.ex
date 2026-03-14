@@ -13,9 +13,13 @@ defmodule FlyCodeWeb.SessionLive do
     db_session = Sessions.get_session_by_session_id(session_id)
 
     messages =
-      case Coordinator.get_messages(session_id) do
-        {:ok, msgs} -> msgs
-        {:error, _} -> []
+      if connected?(socket) do
+        case Coordinator.get_messages(session_id) do
+          {:ok, msgs} -> msgs
+          {:error, _} -> []
+        end
+      else
+        []
       end
 
     {:ok,

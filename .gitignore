@@ -35,3 +35,4 @@ fly_code-*.tar
 npm-debug.log
 /assets/node_modules/
 
+docs/superpowers

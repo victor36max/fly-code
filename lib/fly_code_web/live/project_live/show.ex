@@ -75,6 +75,22 @@ defmodule FlyCodeWeb.ProjectLive.Show do
     end
   end
 
+  def handle_event("save_setup_script", %{"setup_script" => script}, socket) do
+    # Store empty string as nil
+    script = if script == "", do: nil, else: script
+
+    case Projects.update_project(socket.assigns.project, %{setup_script: script}) do
+      {:ok, project} ->
+        {:noreply,
+         socket
+         |> assign(project: project)
+         |> put_flash(:info, "Setup script saved")}
+
+      {:error, _changeset} ->
+        {:noreply, put_flash(socket, :error, "Failed to save setup script")}
+    end
+  end
+
   def handle_event("set_backend", %{"backend" => backend}, socket) do
     backend = String.to_existing_atom(backend)
     missing = compute_missing_tokens(socket.assigns.env_keys, backend)

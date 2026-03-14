@@ -1,7 +1,8 @@
+import { useState } from "react"
 import { Link } from "live_react"
 import { useLiveReact } from "live_react"
 import CodeEditor from "@uiw/react-textarea-code-editor"
-import { ArrowLeft, Plus, Settings, ExternalLink, AlertTriangle, Loader2 } from "lucide-react"
+import { ArrowLeft, Plus, Settings, ExternalLink, AlertTriangle, Loader2, Pencil, Check, X } from "lucide-react"
 import { Button } from "@/ui/button"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/ui/card"
 import { Badge } from "@/ui/badge"
@@ -55,6 +56,96 @@ function formatDate(dateStr: string): string {
   }
 }
 
+function SetupScriptCard({
+  setupScript,
+  onSave,
+}: {
+  setupScript: string | null
+  onSave: (script: string) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(setupScript || "")
+
+  const handleEdit = () => {
+    setDraft(setupScript || "")
+    setEditing(true)
+  }
+
+  const handleCancel = () => {
+    setDraft(setupScript || "")
+    setEditing(false)
+  }
+
+  const handleSave = () => {
+    onSave(draft)
+    setEditing(false)
+  }
+
+  const editorStyle = {
+    fontSize: 13,
+    borderRadius: 6,
+    fontFamily:
+      "ui-monospace,SFMono-Regular,SF Mono,Consolas,Liberation Mono,Menlo,monospace",
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm font-medium">Setup Script</CardTitle>
+          {!editing ? (
+            <Button variant="ghost" size="sm" onClick={handleEdit}>
+              <Pencil className="h-3 w-3" />
+              Edit
+            </Button>
+          ) : (
+            <div className="flex gap-1">
+              <Button variant="ghost" size="sm" onClick={handleCancel}>
+                <X className="h-3 w-3" />
+                Cancel
+              </Button>
+              <Button size="sm" onClick={handleSave}>
+                <Check className="h-3 w-3" />
+                Save
+              </Button>
+            </div>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Runs on the FLAME runner after cloning the repo
+        </p>
+      </CardHeader>
+      <CardContent>
+        {editing ? (
+          <CodeEditor
+            value={draft}
+            language="bash"
+            placeholder={"#!/bin/bash\nmix deps.get && mix compile"}
+            onChange={(e) => setDraft(e.target.value)}
+            padding={15}
+            data-color-mode="light"
+            style={{
+              ...editorStyle,
+              border: "1px solid hsl(var(--input))",
+            }}
+          />
+        ) : setupScript ? (
+          <CodeEditor
+            value={setupScript}
+            language="bash"
+            readOnly
+            data-color-mode="light"
+            padding={15}
+            style={editorStyle}
+          />
+        ) : (
+          <p className="text-sm text-muted-foreground">No setup script configured.</p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 export default function ProjectShow({
   project,
   sessions,
@@ -89,28 +180,10 @@ export default function ProjectShow({
         <p className="text-sm text-muted-foreground">{project.repo_url}</p>
       </div>
 
-      {project.setup_script && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Setup Script</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <CodeEditor
-              value={project.setup_script}
-              language="bash"
-              readOnly
-              data-color-mode="light"
-              padding={15}
-              style={{
-                fontSize: 13,
-                borderRadius: 6,
-                fontFamily:
-                  "ui-monospace,SFMono-Regular,SF Mono,Consolas,Liberation Mono,Menlo,monospace",
-              }}
-            />
-          </CardContent>
-        </Card>
-      )}
+      <SetupScriptCard
+        setupScript={project.setup_script}
+        onSave={(script) => pushEvent("save_setup_script", { setup_script: script })}
+      />
 
       {hasMissingTokens && (
         <Alert variant="warning">

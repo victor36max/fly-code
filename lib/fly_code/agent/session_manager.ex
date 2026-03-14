@@ -12,7 +12,7 @@ defmodule FlyCode.Agent.SessionManager do
 
   def send_message(pid, text), do: GenServer.cast(pid, {:message, text})
 
-  def get_messages(pid), do: GenServer.call(pid, :get_messages)
+  def get_messages(pid), do: GenServer.call(pid, :get_messages, 15_000)
 
   @impl true
   def init(opts) do
