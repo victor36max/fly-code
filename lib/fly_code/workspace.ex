@@ -78,14 +78,16 @@ defmodule FlyCode.Workspace do
         :ok
 
       token ->
-        case System.cmd("git", [
-               "config",
-               "--global",
-               "credential.helper",
-               "!f() { echo \"username=x-access-token\npassword=#{token}\"; }; f"
-             ],
-             stderr_to_stdout: true
-           ) do
+        case System.cmd(
+               "git",
+               [
+                 "config",
+                 "--global",
+                 "credential.helper",
+                 "!f() { echo \"username=x-access-token\npassword=#{token}\"; }; f"
+               ],
+               stderr_to_stdout: true
+             ) do
           {_, 0} -> :ok
           {output, code} -> Logger.warning("git config failed (exit #{code}): #{output}")
         end

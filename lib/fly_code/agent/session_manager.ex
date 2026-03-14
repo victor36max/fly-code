@@ -16,55 +16,64 @@ defmodule FlyCode.Agent.SessionManager do
 
   @impl true
   def init(opts) do
-    IO.puts("[SessionManager] init called with session_id=#{Keyword.get(opts, :session_id)}")
+    Logger.info("[SessionManager] init called with session_id=#{Keyword.get(opts, :session_id)}")
 
-    repo_url = Keyword.fetch!(opts, :repo_url)
     session_id = Keyword.fetch!(opts, :session_id)
     pubsub_topic = Keyword.fetch!(opts, :pubsub_topic)
-    env_vars = Keyword.fetch!(opts, :env_vars)
-    branch = Keyword.get(opts, :branch, "main")
     backend = Keyword.get(opts, :backend, :claude_code)
-    backend_mod = backend_module(backend)
 
+    state = %{
+      client: nil,
+      backend_mod: backend_module(backend),
+      session_id: session_id,
+      workspace: nil,
+      pubsub_topic: pubsub_topic,
+      task: nil,
+      messages: [],
+      # Stored for handle_continue
+      repo_url: Keyword.fetch!(opts, :repo_url),
+      env_vars: Keyword.fetch!(opts, :env_vars),
+      branch: Keyword.get(opts, :branch, "main"),
+      backend: backend
+    }
+
+    {:ok, state, {:continue, :setup}}
+  end
+
+  @impl true
+  def handle_continue(:setup, state) do
     # Broadcast cloning status
-    broadcast(pubsub_topic, {:status, :cloning})
+    broadcast(state.pubsub_topic, {:status, :cloning})
 
     # Inject env vars into the runner's process environment
-    FlyCode.Workspace.inject_env_vars(env_vars)
+    FlyCode.Workspace.inject_env_vars(state.env_vars)
 
     # Clone repo
-    IO.puts("[SessionManager] cloning #{repo_url} (branch: #{branch})")
+    Logger.info("[SessionManager] cloning #{state.repo_url} (branch: #{state.branch})")
 
-    case FlyCode.Workspace.setup(repo_url, session_id, branch: branch) do
+    case FlyCode.Workspace.setup(state.repo_url, state.session_id, branch: state.branch) do
       {:ok, workspace_path} ->
-        IO.puts("[SessionManager] clone complete, starting #{backend} backend")
+        Logger.info("[SessionManager] clone complete, starting #{state.backend} backend")
 
-        case backend_mod.start(session_id, workspace_path, pubsub_topic) do
+        case state.backend_mod.start(state.session_id, workspace_path, state.pubsub_topic) do
           {:ok, client} ->
-            IO.puts("[SessionManager] backend started successfully")
-            broadcast(pubsub_topic, {:status, :active})
+            Logger.info("[SessionManager] backend started successfully")
+            FlyCode.Agent.Coordinator.update_session_status(state.session_id, :active)
+            broadcast(state.pubsub_topic, {:status, :active})
 
-            {:ok,
-             %{
-               client: client,
-               backend_mod: backend_mod,
-               session_id: session_id,
-               workspace: workspace_path,
-               pubsub_topic: pubsub_topic,
-               task: nil,
-               messages: []
-             }}
+            {:noreply,
+             %{state | client: client, workspace: workspace_path, repo_url: nil, env_vars: nil}}
 
           {:error, reason} ->
-            IO.puts("[SessionManager] backend start FAILED: #{inspect(reason)}")
-            broadcast(pubsub_topic, {:error, "Failed to start backend: #{inspect(reason)}"})
-            {:stop, {:backend_start_failed, reason}}
+            Logger.info("[SessionManager] backend start FAILED: #{inspect(reason)}")
+            broadcast(state.pubsub_topic, {:error, "Failed to start backend: #{inspect(reason)}"})
+            {:stop, {:backend_start_failed, reason}, state}
         end
 
       {:error, reason} ->
-        IO.puts("[SessionManager] clone FAILED: #{reason}")
-        broadcast(pubsub_topic, {:error, "Failed to clone repo: #{reason}"})
-        {:stop, {:clone_failed, reason}}
+        Logger.info("[SessionManager] clone FAILED: #{reason}")
+        broadcast(state.pubsub_topic, {:error, "Failed to clone repo: #{reason}"})
+        {:stop, {:clone_failed, reason}, state}
     end
   end
 

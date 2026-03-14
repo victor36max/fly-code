@@ -38,6 +38,10 @@ defmodule FlyCode.Agent.Coordinator do
     GenServer.call(__MODULE__, :list_active)
   end
 
+  def update_session_status(session_id, status) do
+    GenServer.cast(__MODULE__, {:update_status, session_id, status})
+  end
+
   # --- Callbacks ---
 
   @impl true
@@ -83,8 +87,7 @@ defmodule FlyCode.Agent.Coordinator do
         # Monitor the remote process
         Process.monitor(pid)
 
-        # Update status in DB (Repo runs on the main VM, not on FLAME runners)
-        FlyCode.Sessions.update_session_status(session_id, :active)
+        # Status stays :cloning — SessionManager will notify when clone completes
 
         sessions = Map.put(state.sessions, session_id, %{pid: pid, project_id: project_id})
 
@@ -112,6 +115,12 @@ defmodule FlyCode.Agent.Coordinator do
 
   def handle_call(:list_active, _from, state) do
     {:reply, state.sessions, state}
+  end
+
+  @impl true
+  def handle_cast({:update_status, session_id, status}, state) do
+    FlyCode.Sessions.update_session_status(session_id, status)
+    {:noreply, state}
   end
 
   @impl true
